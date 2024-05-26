@@ -70,8 +70,15 @@ async fn post_csp(mut info: web::Payload) -> Result<HttpResponse, Error> {
         }
         body.extend_from_slice(&chunk);
     }
-    let obj = serde_json::from_slice::<CspReport>(&body)?;
-    println!("{:?}", obj);
+    match serde_json::from_slice::<CspReport>(&body) {
+        Ok(obj) => {
+            println!("{:?}", obj);
+        },
+        Err(e) => {
+            println!("{:?}", e);
+            println!("{:?}", body);
+        },
+    }
     Ok(HttpResponse::Ok()
         .content_type("text/html")
         .body(response))
