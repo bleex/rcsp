@@ -8,7 +8,6 @@ use std::thread;
 async fn main() {
     env_logger::init();
     let (tx, rx) = unbounded();
-    let txclone: Sender<String> = tx.clone();
     let rxclone: Receiver<String> = rx.clone();
     let server = HttpServer::new(move || {
         let tx = tx.clone();
@@ -17,7 +16,7 @@ async fn main() {
             web::post().to(move |body: web::Payload| post_csp(body, tx.clone())),
         )
     });
-    thread::spawn(|| process_logs(txclone, rxclone));
+    thread::spawn(|| process_logs(rxclone));
     println!("Serving on http://localhost:5000...");
     server
         .bind("127.0.0.1:5000")
@@ -85,15 +84,8 @@ async fn post_csp(mut info: web::Payload, tx: Sender<String>) -> Result<HttpResp
     Ok(HttpResponse::Ok().content_type("text/html").body(response))
 }
 
-fn process_logs(_tx: Sender<String>, rx: Receiver<String>) {
-    loop {
-        match rx.recv() {
-            Ok(msg) => {
-                println!("{}", msg);
-            }
-            Err(e) => {
-                println!("{:?}", e);
-            }
-        }
+fn process_logs(rx: Receiver<String>) {
+    while let Ok(msg) = rx.recv() {
+        println!("{}", msg);
     }
 }
