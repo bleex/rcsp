@@ -103,6 +103,32 @@ impl Default for ConnInfo {
     }
 }
 
+#[derive(Deserialize, Debug)]
+#[allow(dead_code, non_snake_case)]
+struct CspContent {
+    blockedURL: String,
+    columnNumber: u32,
+    disposition: String,
+    documentURL: String,
+    effectiveDirective: String,
+    lineNumber: u32,
+    originalPolicy: String,
+    referrer: String,
+    sample: String,
+    sourceFile: String,
+    statusCode: u32,
+}
+
+#[derive(Deserialize, Debug)]
+#[allow(dead_code)]
+struct CspReporting {
+    age: u32,
+    body: CspContent,
+    r#type: String,
+    url: String,
+    user_agent: String,
+}
+
 const MAX_SIZE: usize = 262_144; // max payload size is 256k
 
 async fn post_csp(
