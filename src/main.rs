@@ -43,15 +43,18 @@ async fn get_index() -> HttpResponse {
 #[serde(rename_all = "kebab-case")]
 #[allow(dead_code)]
 struct Csp {
-    blocked_uri: String,
-    column_number: u32,
-    disposition: String,
-    document_uri: String,
-    effective_directive: String,
-    original_policy: String,
-    referrer: String,
-    status_code: u32,
-    violated_directive: String,
+    blocked_uri: Option<String>,
+    column_number: Option<u32>,
+    disposition: Option<String>,
+    document_uri: Option<String>,
+    effective_directive: Option<String>,
+    line_number: Option<u32>,
+    original_policy: Option<String>,
+    referrer: Option<String>,
+    script_sample: Option<String>,
+    source_file: Option<String>,
+    status_code: Option<u32>,
+    violated_directive: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
