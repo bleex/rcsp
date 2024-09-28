@@ -13,7 +13,8 @@ async fn main() {
         let tx = tx.clone();
         App::new().route("/", web::get().to(get_index)).route(
             "/csp",
-            web::post().to(move |body: web::Payload| post_csp(body, tx.clone())),
+            web::post()
+                .to(move |req: HttpRequest, body: web::Payload| post_csp(req, body, tx.clone())),
         )
     });
     thread::spawn(|| process_logs(rxclone));
@@ -26,13 +27,7 @@ async fn main() {
         .expect("error running server");
 }
 
-async fn get_index(req: HttpRequest) -> HttpResponse {
-    for (key, value) in req.headers().into_iter() {
-        println!("{:?} - {:?}", key, value);
-    }
-    if let Some(addr) = req.peer_addr() {
-        println!("{:?}", addr);
-    }
+async fn get_index() -> HttpResponse {
     HttpResponse::Ok().content_type("text/html").body(
         r#"
                 <title>CSP Reporting server</title>
@@ -63,12 +58,55 @@ struct Csp {
 #[serde(rename_all = "kebab-case")]
 #[allow(dead_code)]
 struct CspReport {
-    csp_report: Csp,
+    csp_report: Option<Csp>,
+    invalid_csp: Option<String>,
+    conn_details: Option<ConnInfo>,
+}
+
+impl Default for CspReport {
+    fn default() -> CspReport {
+        CspReport {
+            csp_report: None,
+            invalid_csp: None,
+            conn_details: None,
+        }
+    }
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "kebab-case")]
+#[allow(dead_code)]
+struct ConnInfo {
+    host: Option<String>,
+    ipaddr: Option<String>,
+    x_forwarded_for: Option<String>,
+    x_forwarded_host: Option<String>,
+    x_forwarded_proto: Option<String>,
+    x_forwarded_port: Option<String>,
+    x_real_ip: Option<String>,
+}
+
+impl Default for ConnInfo {
+    fn default() -> ConnInfo {
+        ConnInfo {
+            host: None,
+            ipaddr: None,
+            x_forwarded_for: None,
+            x_forwarded_host: None,
+            x_forwarded_proto: None,
+            x_forwarded_port: None,
+            x_real_ip: None,
+        }
+    }
 }
 
 const MAX_SIZE: usize = 262_144; // max payload size is 256k
 
-async fn post_csp(mut info: web::Payload, tx: Sender<String>) -> Result<HttpResponse, Error> {
+async fn post_csp(
+    req: HttpRequest,
+    mut info: web::Payload,
+    tx: Sender<String>,
+) -> Result<HttpResponse, Error> {
     let response = format!("Nothing");
     let mut body = web::BytesMut::new();
     while let Some(chunk) = info.next().await {
@@ -79,9 +117,33 @@ async fn post_csp(mut info: web::Payload, tx: Sender<String>) -> Result<HttpResp
         }
         body.extend_from_slice(&chunk);
     }
+    let mut conn_details: ConnInfo = ConnInfo::default();
+    if let Some(addr) = req.peer_addr() {
+        conn_details.ipaddr = Some(addr.to_string());
+    }
+    for (hn, hv) in req.headers() {
+        match hn.as_str() {
+            "host" => conn_details.host = Some(format!("{:?}", hv)),
+            "x-forwarded-for" => conn_details.x_forwarded_for = Some(format!("{:?}", hv)),
+            "x-forwarded-host" => conn_details.x_forwarded_host = Some(format!("{:?}", hv)),
+            "x-forwarded-proto" => conn_details.x_forwarded_proto = Some(format!("{:?}", hv)),
+            "x-forwarded-port" => conn_details.x_forwarded_port = Some(format!("{:?}", hv)),
+            "x-real-ip" => conn_details.x_real_ip = Some(format!("{:?}", hv)),
+            _ => {}
+        }
+    }
+
     match serde_json::from_slice::<CspReport>(&body) {
-        Ok(obj) => tx.send(format!(r#"{:?}"#, obj)).unwrap(),
-        Err(_e) => tx.send(format!("{:?}", body)).unwrap(),
+        Ok(mut obj) => {
+            obj.conn_details = Some(conn_details);
+            tx.send(format!(r#"{:?}"#, obj)).unwrap()
+        }
+        Err(_e) => {
+            let mut obj = CspReport::default();
+            obj.conn_details = Some(conn_details);
+            obj.invalid_csp = Some(format!("{:?}", body));
+            tx.send(format!(r#"{:?}"#, obj)).unwrap()
+        }
     };
     Ok(HttpResponse::Ok().content_type("text/html").body(response))
 }
