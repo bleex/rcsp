@@ -1,4 +1,4 @@
-use actix_web::{error, web, App, Error, HttpResponse, HttpServer};
+use actix_web::{error, web, App, Error, HttpRequest, HttpResponse, HttpServer};
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use futures::StreamExt;
 use serde::Deserialize;
@@ -26,7 +26,13 @@ async fn main() {
         .expect("error running server");
 }
 
-async fn get_index() -> HttpResponse {
+async fn get_index(req: HttpRequest) -> HttpResponse {
+    for (key, value) in req.headers().into_iter() {
+        println!("{:?} - {:?}", key, value);
+    }
+    if let Some(addr) = req.peer_addr() {
+        println!("{:?}", addr);
+    }
     HttpResponse::Ok().content_type("text/html").body(
         r#"
                 <title>CSP Reporting server</title>
