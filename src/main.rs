@@ -40,44 +40,6 @@ async fn get_index() -> HttpResponse {
 }
 
 #[derive(Deserialize, Debug)]
-#[serde(rename_all = "kebab-case")]
-#[allow(dead_code)]
-struct Csp {
-    blocked_uri: Option<String>,
-    column_number: Option<u32>,
-    disposition: Option<String>,
-    document_uri: Option<String>,
-    effective_directive: Option<String>,
-    line_number: Option<u32>,
-    original_policy: Option<String>,
-    referrer: Option<String>,
-    script_sample: Option<String>,
-    source_file: Option<String>,
-    status_code: Option<u32>,
-    violated_directive: Option<String>,
-}
-
-#[derive(Deserialize, Debug)]
-#[serde(rename_all = "kebab-case")]
-#[allow(dead_code)]
-struct CspReport {
-    csp_report: Option<Csp>,
-    invalid_csp: Option<String>,
-    conn_details: Option<ConnInfo>,
-}
-
-impl Default for CspReport {
-    fn default() -> CspReport {
-        CspReport {
-            csp_report: None,
-            invalid_csp: None,
-            conn_details: None,
-        }
-    }
-}
-
-#[derive(Deserialize, Debug)]
-#[serde(rename_all = "kebab-case")]
 #[allow(dead_code)]
 struct ConnInfo {
     host: Option<String>,
@@ -104,29 +66,21 @@ impl Default for ConnInfo {
 }
 
 #[derive(Deserialize, Debug)]
-#[allow(dead_code, non_snake_case)]
-struct CspContent {
-    blockedURL: String,
-    columnNumber: u32,
-    disposition: String,
-    documentURL: String,
-    effectiveDirective: String,
-    lineNumber: u32,
-    originalPolicy: String,
-    referrer: String,
-    sample: String,
-    sourceFile: String,
-    statusCode: u32,
+#[allow(dead_code)]
+struct CspContainer {
+    csp: Option<serde_json::Value>,
+    invalid_csp: Option<String>,
+    conn_info: Option<ConnInfo>,
 }
 
-#[derive(Deserialize, Debug)]
-#[allow(dead_code)]
-struct CspReporting {
-    age: u32,
-    body: CspContent,
-    r#type: String,
-    url: String,
-    user_agent: String,
+impl Default for CspContainer {
+    fn default() -> CspContainer {
+        CspContainer {
+            csp: None,
+            invalid_csp: None,
+            conn_info: None,
+        }
+    }
 }
 
 const MAX_SIZE: usize = 262_144; // max payload size is 256k
@@ -146,34 +100,36 @@ async fn post_csp(
         }
         body.extend_from_slice(&chunk);
     }
-    let mut conn_details: ConnInfo = ConnInfo::default();
+    let mut conn_info: ConnInfo = ConnInfo::default();
     if let Some(addr) = req.peer_addr() {
-        conn_details.ipaddr = Some(addr.to_string());
+        conn_info.ipaddr = Some(addr.to_string());
     }
     for (hn, hv) in req.headers() {
         match hn.as_str() {
-            "host" => conn_details.host = Some(format!("{:?}", hv)),
-            "x-forwarded-for" => conn_details.x_forwarded_for = Some(format!("{:?}", hv)),
-            "x-forwarded-host" => conn_details.x_forwarded_host = Some(format!("{:?}", hv)),
-            "x-forwarded-proto" => conn_details.x_forwarded_proto = Some(format!("{:?}", hv)),
-            "x-forwarded-port" => conn_details.x_forwarded_port = Some(format!("{:?}", hv)),
-            "x-real-ip" => conn_details.x_real_ip = Some(format!("{:?}", hv)),
+            "host" => conn_info.host = Some(format!("{:?}", hv)),
+            "x-forwarded-for" => conn_info.x_forwarded_for = Some(format!("{:?}", hv)),
+            "x-forwarded-host" => conn_info.x_forwarded_host = Some(format!("{:?}", hv)),
+            "x-forwarded-proto" => conn_info.x_forwarded_proto = Some(format!("{:?}", hv)),
+            "x-forwarded-port" => conn_info.x_forwarded_port = Some(format!("{:?}", hv)),
+            "x-real-ip" => conn_info.x_real_ip = Some(format!("{:?}", hv)),
             _ => {}
         }
     }
 
-    match serde_json::from_slice::<CspReport>(&body) {
-        Ok(mut obj) => {
-            obj.conn_details = Some(conn_details);
+    match serde_json::from_slice::<serde_json::Value>(&body) {
+        Ok(csp) => {
+            let mut obj = CspContainer::default();
+            obj.conn_info = Some(conn_info);
+            obj.csp = Some(csp);
             tx.send(format!(r#"{:?}"#, obj)).unwrap()
         }
         Err(_e) => {
-            let mut obj = CspReport::default();
-            obj.conn_details = Some(conn_details);
+            let mut obj = CspContainer::default();
+            obj.conn_info = Some(conn_info);
             obj.invalid_csp = Some(format!("{:?}", body));
             tx.send(format!(r#"{:?}"#, obj)).unwrap()
         }
-    };
+    }
     Ok(HttpResponse::Ok().content_type("text/html").body(response))
 }
 
