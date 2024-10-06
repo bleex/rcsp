@@ -1,6 +1,7 @@
 use actix_web::{error, web, App, Error, HttpRequest, HttpResponse, HttpServer};
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use futures::StreamExt;
+use lapin::{options::*, BasicProperties, Channel, Connection, ConnectionProperties};
 use serde::Deserialize;
 use std::thread;
 
@@ -17,7 +18,13 @@ async fn main() {
                 .to(move |req: HttpRequest, body: web::Payload| post_csp(req, body, tx.clone())),
         )
     });
-    thread::spawn(|| process_logs(rxclone));
+    let uri = "amqp://localhost:5672";
+    let options = ConnectionProperties::default();
+    let conn = Connection::connect(uri, options).await.unwrap();
+    let channel = conn.create_channel().await.unwrap();
+    let chclone = channel.clone();
+
+    thread::spawn(|| process_logs(rxclone, chclone));
     println!("Serving on http://localhost:5000...");
     server
         .bind("127.0.0.1:5000")
@@ -133,8 +140,22 @@ async fn post_csp(
     Ok(HttpResponse::Ok().content_type("text/html").body(response))
 }
 
-fn process_logs(rx: Receiver<String>) {
+fn process_logs(rx: Receiver<String>, cx: Channel) {
     while let Ok(msg) = rx.recv() {
         println!("{}", msg);
+        async_global_executor::block_on(async {
+            let _res = cx
+                .basic_publish(
+                    "",
+                    "csp",
+                    BasicPublishOptions::default(),
+                    msg.as_bytes(),
+                    BasicProperties::default(),
+                )
+                .await
+                .unwrap()
+                .await
+                .unwrap();
+        })
     }
 }
